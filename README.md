@@ -56,3 +56,11 @@ console. Enable them with the `telemetry` feature, e.g. `./flash.sh --features t
 Initialization and error messages are always logged.
 On-device verification found I2C devices at `0x34`, `0x69`, and `0x76`; manually testing the
 keyboard produced 68 press/release pairs across 67 distinct matrix codes.
+
+## Haptics and LEDs
+- The vibration motor follows the upstream test firmware: ESP32 GPIO 8 is configured as an output
+  and driven high for 50 ms for every key-down event. GPIO initialization and pulse errors are
+  logged. In the carrier PCB the `PWM_VIB` net only reaches that pin through `R49` (0R), which is
+  marked do-not-populate, so on a stock board the motor may be disconnected until R49 is bridged.
+- The 6 on-board WS2812 LEDs have their data inputs tied together with nothing driving them in the
+  carrier schematic, which matches upstream's `WS2812_LED_DISABLE`, so there is nothing to light.

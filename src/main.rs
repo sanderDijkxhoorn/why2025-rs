@@ -12,6 +12,7 @@ use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::*;
 use embedded_graphics::text::{Baseline, Text};
 use esp_idf_hal::delay::{Ets, BLOCK};
+use esp_idf_hal::gpio::{Output, PinDriver};
 use esp_idf_hal::i2c::{APBTickType, I2cConfig, I2cDriver, I2cError};
 use esp_idf_hal::peripherals::Peripherals;
 use esp_idf_hal::units::*;
@@ -107,17 +108,23 @@ const BMI270_GYRO_SENSITIVITY_LSB_PER_DPS: f32 = 16.4;
 
 type Bmi270Error = bmi2::types::Error<I2cError>;
 
-fn init_i2c_bus() -> Result<I2cDriver<'static>, EspError> {
-    let peripherals = Peripherals::take()?;
+const VIBRATION_DURATION: Duration = Duration::from_millis(50);
+
+fn vibrate(pin: &mut PinDriver<'_, Output>) -> Result<(), EspError> {
+    pin.set_high()?;
+    thread::sleep(VIBRATION_DURATION);
+    pin.set_low()
+}
+
+fn init_i2c_bus(
+    i2c0: esp_idf_hal::i2c::I2C0<'static>,
+    sda: esp_idf_hal::gpio::Gpio18<'static>,
+    scl: esp_idf_hal::gpio::Gpio20<'static>,
+) -> Result<I2cDriver<'static>, EspError> {
     let config = I2cConfig::new()
         .baudrate(100.kHz().into())
         .timeout(APBTickType::from(Duration::from_millis(100)));
-    I2cDriver::new(
-        peripherals.i2c0,
-        peripherals.pins.gpio18,
-        peripherals.pins.gpio20,
-        &config,
-    )
+    I2cDriver::new(i2c0, sda, scl, &config)
 }
 
 fn scan_i2c_bus(i2c: &mut I2cDriver<'_>) {
@@ -167,7 +174,8 @@ fn init_keyboard(i2c: &mut I2cDriver<'_>) -> Result<(), EspError> {
     Ok(())
 }
 
-fn poll_keyboard(i2c: &mut I2cDriver<'_>) -> Result<(), EspError> {
+fn poll_keyboard(i2c: &mut I2cDriver<'_>) -> Result<usize, EspError> {
+    let mut press_count = 0;
     let mut event_count = [0];
     i2c.write_read(
         TCA8418_ADDRESS,
@@ -186,6 +194,9 @@ fn poll_keyboard(i2c: &mut I2cDriver<'_>) -> Result<(), EspError> {
         } else {
             "released"
         };
+        if event[0] & 0x80 != 0 {
+            press_count += 1;
+        }
         if !cfg!(feature = "telemetry") {
             continue;
         }
@@ -201,7 +212,7 @@ fn poll_keyboard(i2c: &mut I2cDriver<'_>) -> Result<(), EspError> {
         }
     }
 
-    Ok(())
+    Ok(press_count)
 }
 
 fn init_bmi270(i2c: &mut I2cDriver<'static>) -> Result<(), Bmi270Error> {
@@ -273,7 +284,23 @@ fn main() {
     }
 
     log::info!("WHY2025-RS Base Firmware Online");
-    let mut i2c = match init_i2c_bus() {
+    let peripherals = Peripherals::take().expect("peripherals already taken");
+    let mut vibrator: Option<PinDriver<'static, Output>> =
+        match PinDriver::output(peripherals.pins.gpio8) {
+            Ok(pin) => {
+                log::info!("Vibrator output ready on GPIO8");
+                Some(pin)
+            }
+            Err(error) => {
+                log::error!("Vibrator GPIO8 initialization failed: {error}");
+                None
+            }
+        };
+    let mut i2c = match init_i2c_bus(
+        peripherals.i2c0,
+        peripherals.pins.gpio18,
+        peripherals.pins.gpio20,
+    ) {
         Ok(i2c) => Some(i2c),
         Err(error) => {
             log::error!("I2C bus initialization failed: {error}");
@@ -298,9 +325,22 @@ fn main() {
     loop {
         if keyboard_ready {
             if let Some(i2c) = i2c.as_mut() {
-                if let Err(error) = poll_keyboard(i2c) {
-                    log::error!("TCA8418 keyboard polling stopped: {error}");
-                    keyboard_ready = false;
+                match poll_keyboard(i2c) {
+                    Ok(press_count) => {
+                        if let Some(pin) = vibrator.as_mut() {
+                            for _ in 0..press_count {
+                                if let Err(error) = vibrate(pin) {
+                                    log::error!("Vibrator pulse failed on GPIO8: {error}");
+                                    vibrator = None;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        log::error!("TCA8418 keyboard polling stopped: {error}");
+                        keyboard_ready = false;
+                    }
                 }
             }
         }

@@ -22,9 +22,9 @@ Source of the facts below: schematics in `reference/Hardware`, drivers in `refer
 | Carrier | TCA8418 + 10 switches + LEDs, AP3032 boost | keyboard matrix (I2C) | implemented and verified |
 | Carrier | BMI270 | accelerometer + gyro (I2C) | accelerometer, gyro and tilt verified |
 | Carrier | BME680/BME690 | gas/air quality, temp, humidity, pressure (I2C) | idea |
-| Carrier | 7x WS2812B | addressable RGB LEDs | idea |
+| Carrier | 6x WS2812B | 6x addressable RGB LEDs; data input not connected to any GPIO in the carrier schematic | parked |
 | Carrier | MAX98357A + speaker | I2S audio out (no microphone seen) | idea |
-| Carrier | Vibrator (BC847 driver + motor) | haptics | idea |
+| Carrier | Vibrator (BC847 driver + motor) | haptics | follows upstream GPIO8/50 ms key-down pulse; hardware connection may be open at DNP R49 |
 | Carrier | IP5306 + 18650 cell, charger, balancer, NTC | battery + charging (USB-C on carrier too) | idea |
 | Carrier | Ai-Thinker Ra-01 / Ra-01H + SMA | LoRa (SX127x); antenna not connected, needs a rewire that costs WiFi/BT | parked |
 | Carrier | 1-1734248-5 FFC connector | camera (MIPI-CSI) | idea |
@@ -117,7 +117,7 @@ Original = ELF + per-process address space + syscall wrappers. Good concept, but
 - [ ] Shared I2C bus manager (original has `badgevms_i2c_bus`) so TCA8418/BMI270/BME690 share one bus safely.
 - [ ] BMI270: orientation, gestures, step counter, shake; auto-rotate display. (Original only reported one axis, and returned stale data when busy.)
 - [ ] BME690: IAQ, temp, humidity, pressure; sensor dashboard with history graphs.
-- [ ] WS2812B x7: status/notification LEDs, patterns, an effects engine.
+- [ ] WS2812B x6: no data line is wired on the carrier (see section A); parked.
 - [ ] Vibration motor: haptic patterns and feedback on events.
 - [ ] Audio via MAX98357A: beeps, tones, WAV/MP3 playback, UI sounds.
 - [ ] Battery: voltage, percentage, charging state, low battery action, deep sleep, power profile. `?` check what telemetry IP5306 gives (probably none).
