@@ -16,7 +16,7 @@ use esp_idf_hal::i2c::{APBTickType, I2cConfig, I2cDriver};
 use esp_idf_hal::peripherals::Peripherals;
 use esp_idf_hal::units::*;
 use esp_idf_svc::log::{EspIdfLogFilter, EspLogger};
-use esp_idf_svc::sys::ESP_FAIL;
+use esp_idf_svc::sys::{EspError, ESP_FAIL};
 use log::{Level, LevelFilter, Log, Metadata, Record};
 
 use display::{Display, HEIGHT, WIDTH};
@@ -90,30 +90,24 @@ impl Log for DualLogger {
 
 static LOGGER: DualLogger = DualLogger(EspLogger::new(EspIdfLogFilter::new()));
 
-fn scan_i2c_bus() {
-    let peripherals = match Peripherals::take() {
-        Ok(peripherals) => peripherals,
-        Err(error) => {
-            log::error!("I2C scan could not acquire peripherals: {error}");
-            return;
-        }
-    };
+const TCA8418_ADDRESS: u8 = 0x34;
+const TCA8418_KEY_EVENT_COUNT: u8 = 0x03;
+const TCA8418_KEY_EVENT_A: u8 = 0x04;
+
+fn init_i2c_bus() -> Result<I2cDriver<'static>, EspError> {
+    let peripherals = Peripherals::take()?;
     let config = I2cConfig::new()
         .baudrate(100.kHz().into())
         .timeout(APBTickType::from(Duration::from_millis(100)));
-    let mut i2c = match I2cDriver::new(
+    I2cDriver::new(
         peripherals.i2c0,
         peripherals.pins.gpio18,
         peripherals.pins.gpio20,
         &config,
-    ) {
-        Ok(i2c) => i2c,
-        Err(error) => {
-            log::error!("I2C scan could not initialize GPIO18/20: {error}");
-            return;
-        }
-    };
+    )
+}
 
+fn scan_i2c_bus(i2c: &mut I2cDriver<'_>) {
     let mut found = Vec::new();
     for address in 0x08..=0x77 {
         match i2c.write(address, &[], BLOCK) {
@@ -141,6 +135,59 @@ fn scan_i2c_bus() {
     }
 }
 
+fn init_keyboard(i2c: &mut I2cDriver<'_>) -> Result<(), EspError> {
+    for (register, value) in [
+        (0x23, 0x00),
+        (0x24, 0x00),
+        (0x25, 0x00),
+        (0x1D, 0xFF),
+        (0x1E, 0xFF),
+        (0x1F, 0x03),
+        (0x29, 0x00),
+        (0x2A, 0x00),
+        (0x2B, 0x00),
+    ] {
+        i2c.write(TCA8418_ADDRESS, &[register, value], BLOCK)?;
+    }
+
+    log::info!("TCA8418 keyboard ready at 0x{TCA8418_ADDRESS:02X}");
+    Ok(())
+}
+
+fn poll_keyboard(i2c: &mut I2cDriver<'_>) -> Result<(), EspError> {
+    let mut event_count = [0];
+    i2c.write_read(
+        TCA8418_ADDRESS,
+        &[TCA8418_KEY_EVENT_COUNT],
+        &mut event_count,
+        BLOCK,
+    )?;
+
+    for _ in 0..(event_count[0] & 0x0F) {
+        let mut event = [0];
+        i2c.write_read(TCA8418_ADDRESS, &[TCA8418_KEY_EVENT_A], &mut event, BLOCK)?;
+
+        let key = event[0] & 0x7F;
+        let action = if event[0] & 0x80 != 0 {
+            "pressed"
+        } else {
+            "released"
+        };
+        if (1..=80).contains(&key) {
+            let position = key - 1;
+            log::info!(
+                "Keyboard key {action}: code {key}, row {}, column {}",
+                position / 10,
+                position % 10
+            );
+        } else {
+            log::info!("Keyboard key {action}: code {key}");
+        }
+    }
+
+    Ok(())
+}
+
 fn main() {
     // Required so runtime patches from esp-idf-sys are linked in.
     esp_idf_svc::sys::link_patches();
@@ -160,8 +207,31 @@ fn main() {
     }
 
     log::info!("WHY2025-RS Base Firmware Online");
-    scan_i2c_bus();
+    let mut i2c = match init_i2c_bus() {
+        Ok(i2c) => Some(i2c),
+        Err(error) => {
+            log::error!("I2C bus initialization failed: {error}");
+            None
+        }
+    };
+    let mut keyboard_ready = false;
+    if let Some(i2c) = i2c.as_mut() {
+        scan_i2c_bus(i2c);
+        match init_keyboard(i2c) {
+            Ok(()) => keyboard_ready = true,
+            Err(error) => log::error!("TCA8418 keyboard initialization failed: {error}"),
+        }
+    }
+
     loop {
-        thread::sleep(Duration::from_secs(60));
+        if keyboard_ready {
+            if let Some(i2c) = i2c.as_mut() {
+                if let Err(error) = poll_keyboard(i2c) {
+                    log::error!("TCA8418 keyboard polling stopped: {error}");
+                    keyboard_ready = false;
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(100));
     }
 }

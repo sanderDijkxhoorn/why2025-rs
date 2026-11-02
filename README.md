@@ -43,4 +43,7 @@ The first build downloads ESP-IDF (needs git, python3, cmake, ninja, libudev hea
 At boot, the firmware scans the I2C bus once at 100 kHz using GPIO 18 (SDA) and GPIO 20 (SCL),
 the WHY2025 v2/v2.1 pin mapping. Discovered addresses and scan errors appear on both serial and
 the display console. A scan that finds no devices is reported explicitly; any non-address-NACK
-error stops the scan and is logged.
+error stops the scan and is logged. It then configures the TCA8418 at `0x34` for its 8x10 keypad
+matrix and polls its event FIFO, logging key-down and key-up events with matrix row/column.
+On-device verification found I2C devices at `0x34`, `0x69`, and `0x76`; manually testing the
+keyboard produced 68 press/release pairs across 67 distinct matrix codes.
