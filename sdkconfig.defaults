@@ -1,0 +1,2 @@
+# Rust std main thread needs a larger stack than the ESP-IDF default
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8000
