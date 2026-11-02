@@ -29,6 +29,7 @@ esp-idf-svc = { version = "0.53", default-features = false }
 esp-idf-hal = "0.47"
 embedded-graphics = "0.8"
 bmi2 = "0.1.2"
+why2025-ui = { path = "ui-core" }
 
 [package.metadata.esp-idf-sys]
 esp_idf_sdkconfig_defaults = ["sdkconfig.defaults"]

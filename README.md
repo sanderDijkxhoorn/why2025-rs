@@ -96,6 +96,28 @@ flash access can expose it. Passwords are not shown on screen or included in log
 Wi-Fi is build-integrated but still needs on-device verification against the installed C6 slave
 image. If the hosted link does not start, confirm the C6 image version and the P4/C6 SDIO wiring.
 
+## Desktop UI simulator
+
+The UI uses `embedded-graphics` on both the badge and desktop. This keeps the existing Rust drawing
+path and avoids adding a separate LVGL or Slint runtime while the UI is still small. The display-
+independent dashboard is in `ui-core`; the desktop simulator uses mock Wi-Fi data, so it can be
+worked on without the badge or ESP-IDF toolchain.
+
+Install SDL2 development libraries (for example, `sudo apt install libsdl2-dev` on Debian/Ubuntu),
+then run:
+
+```sh
+cargo run --manifest-path simulator/Cargo.toml --target x86_64-unknown-linux-gnu
+```
+
+The simulator opens on the widget showcase; press Tab to switch to the Wi-Fi dashboard. In the
+dashboard, use Up/Down and Enter to select/connect, R to rescan, and D/F to disconnect/forget.
+Escape closes the simulator window. Its host build and showcase rendering test can be checked with:
+
+```sh
+cargo test --manifest-path simulator/Cargo.toml --target x86_64-unknown-linux-gnu
+```
+
 ## Haptics and LEDs
 - The vibration motor follows the upstream test firmware: ESP32 GPIO 8 is configured as an output
   and driven high for 50 ms for every key-down event. GPIO initialization and pulse errors are

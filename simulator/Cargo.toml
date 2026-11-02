@@ -1,0 +1,9 @@
+[package]
+name = "why2025-ui-simulator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+embedded-graphics = "0.8"
+embedded-graphics-simulator = "0.8"
+why2025-ui = { path = "../ui-core" }

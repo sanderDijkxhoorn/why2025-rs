@@ -66,9 +66,10 @@ Rust angle: `bosch-bme680` or `bme68x-rust`, `bmi270` crates exist; TCA8418 and 
 - [ ] Layout engine (stack/flex, padding, alignment) so screens are not pixel coordinates.
 - [ ] Theme/style system, dark and light.
 - [ ] Better fonts (bitmap + TTF, anti-aliasing, unicode).
-- [ ] Decide: `embedded-graphics` only, LVGL (the factory test uses LVGL v9), Slint, or own toolkit. Compare RAM/PSRAM, speed, ergonomics.
+- [x] UI stack decision: `embedded-graphics` with a shared host simulator; defer LVGL/Slint until a concrete need appears.
 - [ ] Double buffering, dirty rects, PPA acceleration (mind the height % 32 bug).
 - [ ] Animations/transitions.
+- [x] Host SDL simulator and initial widget showcase (label, buttons, list, progress, icon, toast, modal).
 - [ ] GUI demo app showing every widget (showcase + regression check).
 - [ ] Launcher: app grid, status bar (clock, battery, wifi, SD), notifications.
 - [ ] Console becomes one app/widget; the log mirror turns into a debug overlay.
@@ -140,7 +141,7 @@ Original = ELF + per-process address space + syscall wrappers. Good concept, but
 
 ### 8. Platform, tooling, quality
 - [ ] Workspace of crates: `board` (drivers), `ui`, `runtime`, `apps`, `firmware` bin. Keep `ui` host-testable.
-- [ ] Desktop simulator (embedded-graphics-simulator/SDL); UI work without flashing.
+- [x] Desktop simulator (embedded-graphics-simulator/SDL); UI work without flashing.
 - [ ] CI: build, clippy, fmt, host tests.
 - [ ] Panic screen on the display; ring-buffer log viewable on screen.
 - [ ] Heap/CPU stats; boot splash and boot-time work.
@@ -161,7 +162,7 @@ Original = ELF + per-process address space + syscall wrappers. Good concept, but
 
 ## F. Suggested triage order (not decided)
 1. Hardware bring-up inventory (I2C scan, keyboard, IMU, BME, LEDs, haptics, SD): section A/6. I2C scan, TCA8418 key-event reporting, and BMI270 accelerometer/gyroscope/tilt sampling are implemented and verified.
-2. UI stack choice plus simulator and GUI demo: sections 1, 8.
+2. UI stack choice plus simulator and GUI demo: sections 1, 8. (embedded-graphics + SDL simulator chosen; initial showcase implemented)
 3. Input events and shared bus: sections 2, 6.
 4. App model decision: section 3.
 5. Wifi/storage, then BadgeHub client.

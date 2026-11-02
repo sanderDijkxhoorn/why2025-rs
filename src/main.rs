@@ -1,5 +1,4 @@
 mod display;
-mod ui;
 mod wifi;
 
 use std::fmt::Write as _;
@@ -25,10 +24,9 @@ use bmi2::types::{
 use bmi2::{Bmi2, I2cAddr};
 
 use display::{Display, HEIGHT, WIDTH};
-use ui::Dashboard;
-use wifi::{WifiCommand, WifiSnapshot};
+use why2025_ui::{Dashboard, WifiCommand, WifiSnapshot, WifiStatus};
 
-static CONSOLE: Mutex<Option<Dashboard>> = Mutex::new(None);
+static CONSOLE: Mutex<Option<Dashboard<Display>>> = Mutex::new(None);
 
 /// Sends every log record to the serial console and to the screen.
 struct DualLogger(EspLogger);
@@ -296,7 +294,7 @@ fn main() {
             if let Err(error) = wifi::run(modem, wifi_command_rx, manager_updates_tx) {
                 log::error!("Wi-Fi manager initialization failed: {error}");
                 let mut snapshot = WifiSnapshot::default();
-                snapshot.status = wifi::WifiStatus::Unavailable;
+                snapshot.status = WifiStatus::Unavailable;
                 snapshot.detail = Some(error);
                 if let Err(send_error) = init_failure_updates_tx.send(snapshot) {
                     log::error!(
@@ -308,7 +306,7 @@ fn main() {
     {
         log::error!("Wi-Fi manager task could not start: {error}");
         let mut snapshot = WifiSnapshot::default();
-        snapshot.status = wifi::WifiStatus::Unavailable;
+        snapshot.status = WifiStatus::Unavailable;
         snapshot.detail = Some(error.to_string());
         if let Err(send_error) = wifi_update_tx.send(snapshot) {
             log::error!("Wi-Fi task failure status could not reach the display: {send_error}");

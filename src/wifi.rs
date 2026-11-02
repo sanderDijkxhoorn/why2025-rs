@@ -11,6 +11,7 @@ use esp_idf_svc::nvs::{EspDefaultNvs, EspDefaultNvsPartition};
 use esp_idf_svc::wifi::{
     AccessPointInfo, AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi,
 };
+use why2025_ui::{Network, WifiCommand, WifiSnapshot, WifiStatus};
 
 const PROFILE_KEY: &str = "profile";
 const PROFILE_VERSION: u8 = 1;
@@ -19,59 +20,6 @@ const MAX_PROFILE_LEN: usize = PROFILE_HEADER_LEN + 32 + 63;
 const STATUS_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const INITIAL_RETRY_DELAY: Duration = Duration::from_secs(5);
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(60);
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub enum WifiStatus {
-    #[default]
-    Starting,
-    Scanning,
-    Ready,
-    Connecting,
-    Connected,
-    Disconnected,
-    Error,
-    Unavailable,
-}
-
-impl WifiStatus {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::Starting => "STARTING",
-            Self::Scanning => "SCANNING",
-            Self::Ready => "READY",
-            Self::Connecting => "CONNECTING",
-            Self::Connected => "CONNECTED",
-            Self::Disconnected => "DISCONNECTED",
-            Self::Error => "ERROR",
-            Self::Unavailable => "UNAVAILABLE",
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Network {
-    pub ssid: String,
-    pub signal_strength: i8,
-    pub security: &'static str,
-    pub connectable: bool,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct WifiSnapshot {
-    pub status: WifiStatus,
-    pub ssid: Option<String>,
-    pub ip: Option<String>,
-    pub detail: Option<String>,
-    pub networks: Vec<Network>,
-}
-
-#[derive(Debug)]
-pub enum WifiCommand {
-    Scan,
-    Connect { index: usize, password: String },
-    Disconnect,
-    Forget,
-}
 
 #[derive(Clone)]
 struct Profile {

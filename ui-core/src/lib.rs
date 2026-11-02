@@ -1,15 +1,75 @@
+use core::convert::Infallible;
 use std::collections::VecDeque;
 
 use embedded_graphics::mono_font::ascii::FONT_10X20;
 use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
+use embedded_graphics::primitives::{Circle, PrimitiveStyle, Rectangle};
 use embedded_graphics::text::{Baseline, Text};
 use log::Level;
 
-use crate::display::{Display, HEIGHT, WIDTH};
-use crate::wifi::{Network, WifiCommand, WifiSnapshot, WifiStatus};
+pub const WIDTH: usize = 720;
+pub const HEIGHT: usize = 720;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum WifiStatus {
+    #[default]
+    Starting,
+    Scanning,
+    Ready,
+    Connecting,
+    Connected,
+    Disconnected,
+    Error,
+    Unavailable,
+}
+
+impl WifiStatus {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Starting => "STARTING",
+            Self::Scanning => "SCANNING",
+            Self::Ready => "READY",
+            Self::Connecting => "CONNECTING",
+            Self::Connected => "CONNECTED",
+            Self::Disconnected => "DISCONNECTED",
+            Self::Error => "ERROR",
+            Self::Unavailable => "UNAVAILABLE",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Network {
+    pub ssid: String,
+    pub signal_strength: i8,
+    pub security: &'static str,
+    pub connectable: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WifiSnapshot {
+    pub status: WifiStatus,
+    pub ssid: Option<String>,
+    pub ip: Option<String>,
+    pub detail: Option<String>,
+    pub networks: Vec<Network>,
+}
+
+#[derive(Debug)]
+pub enum WifiCommand {
+    Scan,
+    Connect { index: usize, password: String },
+    Disconnect,
+    Forget,
+}
+
+pub trait UiDisplay: DrawTarget<Color = Rgb565, Error = Infallible> {
+    type FlushError;
+
+    fn flush(&mut self) -> Result<(), Self::FlushError>;
+}
 
 const COLUMNS: usize = WIDTH / 10;
 const LOG_ROWS: usize = 8;
@@ -24,8 +84,8 @@ struct PasswordPrompt {
     value: String,
 }
 
-pub struct Dashboard {
-    display: Display,
+pub struct Dashboard<D: UiDisplay> {
+    display: D,
     lines: VecDeque<(Level, String)>,
     wifi: WifiSnapshot,
     selected_network: usize,
@@ -36,8 +96,8 @@ pub struct Dashboard {
     dirty: bool,
 }
 
-impl Dashboard {
-    pub fn new(display: Display) -> Self {
+impl<D: UiDisplay> Dashboard<D> {
+    pub fn new(display: D) -> Self {
         Self {
             display,
             lines: VecDeque::new(),
@@ -49,6 +109,18 @@ impl Dashboard {
             notice: None,
             dirty: true,
         }
+    }
+
+    pub fn display(&self) -> &D {
+        &self.display
+    }
+
+    pub fn display_mut(&mut self) -> &mut D {
+        &mut self.display
+    }
+
+    pub fn invalidate(&mut self) {
+        self.dirty = true;
     }
 
     pub fn push_log(&mut self, level: Level, text: &str) {
@@ -129,7 +201,7 @@ impl Dashboard {
         None
     }
 
-    pub fn render_if_dirty(&mut self) -> Result<(), esp_idf_svc::sys::EspError> {
+    pub fn render_if_dirty(&mut self) -> Result<(), D::FlushError> {
         if !self.dirty {
             return Ok(());
         }
@@ -255,7 +327,13 @@ impl Dashboard {
             696,
             Rgb565::CSS_GRAY,
         );
-        self.display.flush()
+        match self.display.flush() {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.dirty = true;
+                Err(error)
+            }
+        }
     }
 
     fn move_selection(&mut self, direction: isize) {
@@ -389,6 +467,158 @@ impl Dashboard {
         let _ = Text::with_baseline(text, Point::new(x, y), style, Baseline::Top)
             .draw(&mut self.display);
     }
+}
+
+pub fn draw_widget_showcase<D: DrawTarget<Color = Rgb565>>(
+    display: &mut D,
+) -> Result<(), D::Error> {
+    const PANEL: Rgb565 = Rgb565::new(5, 9, 15);
+    const ACCENT: Rgb565 = Rgb565::new(8, 52, 48);
+    const HIGHLIGHT: Rgb565 = Rgb565::new(10, 28, 27);
+    const BACKGROUND: Rgb565 = Rgb565::new(2, 4, 8);
+
+    display.clear(BACKGROUND)?;
+    Rectangle::new(Point::new(0, 0), Size::new(WIDTH as u32, 6))
+        .into_styled(PrimitiveStyle::with_fill(ACCENT))
+        .draw(display)?;
+    demo_text(
+        display,
+        "WHY2025  /  UI TOOLKIT SHOWCASE",
+        26,
+        22,
+        Rgb565::WHITE,
+    )?;
+    demo_text(
+        display,
+        "embedded-graphics + SDL simulator  |  TAB: dashboard",
+        26,
+        48,
+        Rgb565::CSS_GRAY,
+    )?;
+
+    demo_panel(display, 24, 80, 320, 150, PANEL, ACCENT)?;
+    demo_text(display, "LABEL / STATUS", 44, 96, Rgb565::CSS_GRAY)?;
+    demo_text(display, "WIFI CONNECTED", 44, 132, Rgb565::GREEN)?;
+    demo_text(display, "WHY2025-LAB", 44, 166, Rgb565::WHITE)?;
+    demo_text(display, "IP  192.168.1.42", 44, 196, Rgb565::CSS_GRAY)?;
+
+    demo_panel(display, 376, 80, 320, 150, PANEL, ACCENT)?;
+    demo_text(display, "BUTTONS", 396, 96, Rgb565::CSS_GRAY)?;
+    Rectangle::new(Point::new(396, 128), Size::new(132, 44))
+        .into_styled(PrimitiveStyle::with_fill(ACCENT))
+        .draw(display)?;
+    demo_text(display, "CONNECT", 414, 140, Rgb565::WHITE)?;
+    Rectangle::new(Point::new(544, 128), Size::new(132, 44))
+        .into_styled(PrimitiveStyle::with_fill(HIGHLIGHT))
+        .draw(display)?;
+    demo_text(display, "RESCAN", 562, 140, Rgb565::WHITE)?;
+    demo_text(
+        display,
+        "Primary and secondary actions",
+        396,
+        192,
+        Rgb565::CSS_GRAY,
+    )?;
+
+    demo_panel(display, 24, 252, 320, 250, PANEL, ACCENT)?;
+    demo_text(display, "LIST / SELECTED ROW", 44, 268, Rgb565::CSS_GRAY)?;
+    for (row, name) in ["WHY2025-LAB", "BadgeHub", "eduroam"].iter().enumerate() {
+        let y = 306 + row as i32 * 48;
+        if row == 0 {
+            Rectangle::new(Point::new(38, y - 4), Size::new(292, 38))
+                .into_styled(PrimitiveStyle::with_fill(HIGHLIGHT))
+                .draw(display)?;
+        }
+        demo_text(
+            display,
+            name,
+            52,
+            y + 4,
+            if row == 0 {
+                Rgb565::WHITE
+            } else {
+                Rgb565::CSS_GRAY
+            },
+        )?;
+        demo_text(
+            display,
+            if row == 0 { "-42 dBm" } else { "-68 dBm" },
+            234,
+            y + 4,
+            Rgb565::CSS_GRAY,
+        )?;
+    }
+
+    demo_panel(display, 376, 252, 320, 250, PANEL, ACCENT)?;
+    demo_text(display, "PROGRESS / ICON", 396, 268, Rgb565::CSS_GRAY)?;
+    Circle::new(Point::new(406, 310), 32)
+        .into_styled(PrimitiveStyle::with_fill(Rgb565::GREEN))
+        .draw(display)?;
+    Circle::new(Point::new(417, 320), 10)
+        .into_styled(PrimitiveStyle::with_fill(PANEL))
+        .draw(display)?;
+    demo_text(display, "SYNCING", 454, 318, Rgb565::WHITE)?;
+    Rectangle::new(Point::new(396, 374), Size::new(280, 14))
+        .into_styled(PrimitiveStyle::with_fill(HIGHLIGHT))
+        .draw(display)?;
+    Rectangle::new(Point::new(396, 374), Size::new(188, 14))
+        .into_styled(PrimitiveStyle::with_fill(ACCENT))
+        .draw(display)?;
+    demo_text(display, "67% complete", 396, 404, Rgb565::WHITE)?;
+    demo_text(display, "Battery: 82%", 396, 446, Rgb565::CSS_GRAY)?;
+
+    demo_panel(display, 24, 524, 672, 150, PANEL, ACCENT)?;
+    demo_text(display, "TOAST / MODAL", 44, 540, Rgb565::CSS_GRAY)?;
+    Rectangle::new(Point::new(44, 578), Size::new(252, 48))
+        .into_styled(PrimitiveStyle::with_fill(HIGHLIGHT))
+        .draw(display)?;
+    demo_text(display, "Saved successfully", 60, 592, Rgb565::GREEN)?;
+    Rectangle::new(Point::new(326, 568), Size::new(344, 78))
+        .into_styled(PrimitiveStyle::with_fill(BACKGROUND))
+        .draw(display)?;
+    Rectangle::new(Point::new(326, 568), Size::new(344, 78))
+        .into_styled(PrimitiveStyle::with_stroke(ACCENT, 2))
+        .draw(display)?;
+    demo_text(display, "CONFIRM ACTION", 346, 582, Rgb565::WHITE)?;
+    demo_text(
+        display,
+        "Cancel                 Continue",
+        346,
+        612,
+        Rgb565::CSS_GRAY,
+    )?;
+    demo_text(display, "ESC: quit simulator", 26, 700, Rgb565::CSS_GRAY)?;
+
+    Ok(())
+}
+
+fn demo_panel<D: DrawTarget<Color = Rgb565>>(
+    display: &mut D,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    panel: Rgb565,
+    accent: Rgb565,
+) -> Result<(), D::Error> {
+    Rectangle::new(Point::new(x, y), Size::new(width, height))
+        .into_styled(PrimitiveStyle::with_fill(panel))
+        .draw(display)?;
+    Rectangle::new(Point::new(x, y), Size::new(5, height))
+        .into_styled(PrimitiveStyle::with_fill(accent))
+        .draw(display)
+}
+
+fn demo_text<D: DrawTarget<Color = Rgb565>>(
+    display: &mut D,
+    text: &str,
+    x: i32,
+    y: i32,
+    color: Rgb565,
+) -> Result<(), D::Error> {
+    let style = MonoTextStyle::new(&FONT_10X20, color);
+    Text::with_baseline(text, Point::new(x, y), style, Baseline::Top).draw(display)?;
+    Ok(())
 }
 
 fn format_network(index: usize, network: &Network) -> String {
