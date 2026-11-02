@@ -15,9 +15,10 @@ Build, flash and monitor:
 
 `flash.sh` uses the pinned nightly (2026-06-01). Newer nightlies currently fail to build `std` for ESP-IDF.
 
-Note: the badge's USB port (`/dev/ttyACM0`) currently identifies as an **ESP32-C6**, so the
-project targets `esp32c6` / `riscv32imac-esp-espidf`. Flashing overwrites the C6's firmware.
-The first build downloads ESP-IDF (needs git, python3, cmake, ninja, libudev headers).
+The side USB-C port (`/dev/ttyUSB0`) is the P4 port used by `./flash.sh`. The separate
+`/dev/ttyACM*` port is the C6 radio co-processor; this project does not flash it. The P4 and C6
+run different firmware, and the C6 must retain a compatible `esp_hosted` slave image. The first
+build downloads ESP-IDF (needs git, python3, cmake, ninja, libudev headers).
 
 ## References
 - Badge wiki: https://wiki.why2025.org/Badge
@@ -61,8 +62,12 @@ keyboard produced 68 press/release pairs across 67 distinct matrix codes.
 ## Wi-Fi and status dashboard
 The ESP32-P4 has no built-in radio. Wi-Fi uses the carrier's ESP32-C6 over the SDIO `esp_hosted`
 link (P4 GPIOs 28-33 and reset GPIO13), using the component versions and pin map from the badge
-test firmware. The C6 must be running a compatible `esp_hosted` 2.0.17 slave image; this firmware
-does not flash or replace the C6 image.
+test firmware. The C6 must be running a compatible `esp_hosted` 2.0.17 slave image; `./flash.sh` only flashes
+the P4 and does not install or replace the C6 image. The reference
+[C6 slave-firmware instructions](reference/test-firmware/README.md) describe building the image.
+If the P4 log repeatedly says `Not able to connect with ESP-Hosted slave device` and no `Wi-Fi AP`
+scan lines appear, the radio link has not come up; check the C6 slave image and SDIO/reset wiring
+before troubleshooting the scan list.
 
 The display shows Wi-Fi state, the selected SSID and IP address, nearby scan results, and a small
 log view. It only redraws after a state or log change. Use the keypad arrows to select a network

@@ -107,6 +107,9 @@ pub fn spawn_console(sender: Sender<WifiCommand>) -> io::Result<thread::JoinHand
                         continue;
                     }
                     Ok(_) => {}
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(100));
+                    }
                     Err(error) => {
                         log::error!("Wi-Fi serial input failed: {error}");
                         break;
@@ -171,14 +174,25 @@ pub fn run(
     commands: Receiver<WifiCommand>,
     updates: Sender<WifiSnapshot>,
 ) -> Result<(), String> {
+    let startup_status = WifiSnapshot {
+        detail: Some("Waiting for ESP32-C6 hosted radio".to_owned()),
+        ..WifiSnapshot::default()
+    };
+    updates
+        .send(startup_status)
+        .map_err(|error| format!("Wi-Fi startup status: {error}"))?;
+    log::info!("Initializing ESP-Hosted Wi-Fi radio over SDIO");
+
     let system_loop =
         EspSystemEventLoop::take().map_err(|error| format!("system event loop: {error}"))?;
     let partition =
         EspDefaultNvsPartition::take().map_err(|error| format!("NVS initialization: {error}"))?;
     let nvs = EspDefaultNvs::new(partition.clone(), "wifi", true)
         .map_err(|error| format!("Wi-Fi settings namespace: {error}"))?;
+    log::info!("Creating ESP-Hosted Wi-Fi driver");
     let wifi = EspWifi::new(modem, system_loop.clone(), Some(partition))
         .map_err(|error| format!("Wi-Fi driver initialization: {error}"))?;
+    log::info!("ESP-Hosted Wi-Fi driver created");
     let wifi = BlockingWifi::wrap(wifi, system_loop)
         .map_err(|error| format!("Wi-Fi event loop: {error}"))?;
 
@@ -186,7 +200,10 @@ pub fn run(
         wifi,
         nvs,
         scan_results: Vec::new(),
-        snapshot: WifiSnapshot::default(),
+        snapshot: WifiSnapshot {
+            detail: Some("Waiting for ESP32-C6 hosted radio".to_owned()),
+            ..WifiSnapshot::default()
+        },
         updates,
         profile: None,
         auto_reconnect: false,
@@ -199,11 +216,13 @@ pub fn run(
         .wifi
         .set_configuration(&Configuration::Client(ClientConfiguration::default()))
         .map_err(|error| format!("Wi-Fi station configuration: {error}"))?;
+    log::info!("Starting Wi-Fi station");
     manager
         .wifi
         .start()
         .map_err(|error| format!("Wi-Fi driver start: {error}"))?;
 
+    log::info!("Wi-Fi station started; beginning initial scan");
     let initial_scan_succeeded = match manager.scan() {
         Ok(()) => true,
         Err(error) => {
