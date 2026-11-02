@@ -10,7 +10,7 @@ If `RUSTUP_TOOLCHAIN` is set (or cargo comes from a mise shim), make sure the ni
 toolchain is used: `rustup toolchain install nightly --component rust-src`, then put
 `~/.rustup/toolchains/nightly-*/bin` first in `PATH`.
 
-Build, flash and monitor (no code fences when pasting into fish):
+Build, flash and monitor:
 ./flash.sh
 
 `flash.sh` uses the pinned nightly (2026-06-01). Newer nightlies currently fail to build `std` for ESP-IDF.
@@ -25,3 +25,16 @@ The first build downloads ESP-IDF (needs git, python3, cmake, ninja, libudev hea
 - Team badge group: https://gitlab.com/why2025/team-badge
 - Hardware: https://gitlab.com/why2025/team-badge/Hardware
 - Programming: https://why-prog.heplaphon.com/
+
+## Hardware notes
+- The badge has two chips: an **ESP32-P4** (main CPU, runs BadgeVMS, drives the display) and an
+  **ESP32-C6** (radio co-processor running `esp_hosted`).
+- The side USB-C port is a CH340 serial bridge to the **P4** (`/dev/ttyUSB0`, group `uucp`:
+  `sudo usermod -aG uucp $USER`). The other port is the C6's native USB (`/dev/ttyACM*`).
+- This project targets the P4 (`esp32p4`, `riscv32imafc-esp-espidf`, ESP-IDF v5.5.1). It replaces BadgeVMS on the P4;
+  restore it with https://why-prog.heplaphon.com/ ("BadgeVMS post_event").
+- Display: 720x720 ST7703 over MIPI-DSI, ported from `badgevms/drivers/st7703.[ch]` in the firmware repo.
+  `src/display.rs` uses the **Bono** panel (black ribbon border, carrier v2.1) init and timings; the older
+  Mountain panel (blue border) needs the other sequence from that driver.
+- Logs are mirrored to the screen (`src/main.rs`, `DualLogger`).
+- The framebuffer lives in PSRAM; 200 MHz PSRAM (`IDF_EXPERIMENTAL_FEATURES`) is required, at 20 MHz the DPI stream underruns.

@@ -23,8 +23,16 @@ alloc = ["esp-idf-svc/alloc"]
 
 [dependencies]
 log = "0.4"
-esp-idf-svc = { version = "0.51", default-features = false }
-esp-idf-hal = "0.45"
+esp-idf-svc = { version = "0.53", default-features = false }
+esp-idf-hal = "0.47"
+embedded-graphics = "0.8"
+
+[package.metadata.esp-idf-sys]
+esp_idf_sdkconfig_defaults = ["sdkconfig.defaults"]
+
+[[package.metadata.esp-idf-sys.extra_components]]
+bindings_header = "src/bindings.h"
+bindings_module = "display_sys"
 
 [build-dependencies]
 embuild = "0.33"

@@ -1,7 +1,7 @@
 [build]
-target = "riscv32imac-esp-espidf"
+target = "riscv32imafc-esp-espidf"
 
-[target.riscv32imac-esp-espidf]
+[target.riscv32imafc-esp-espidf]
 linker = "ldproxy"
 runner = "espflash flash --monitor"
 rustflags = ["--cfg", "espidf_time64"]
@@ -10,7 +10,7 @@ rustflags = ["--cfg", "espidf_time64"]
 build-std = ["std", "panic_abort"]
 
 [env]
-MCU = "esp32c6"
-# ESP32-C6 works with ESP-IDF 5.x
-ESP_IDF_VERSION = "v5.3.3"
+MCU = "esp32p4"
+# ESP32-P4 needs ESP-IDF >= 5.3 (5.5 recommended)
+ESP_IDF_VERSION = "v5.5.1"
 ESP_IDF_SDKCONFIG_DEFAULTS = "sdkconfig.defaults"
