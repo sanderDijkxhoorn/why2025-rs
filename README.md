@@ -45,5 +45,14 @@ the WHY2025 v2/v2.1 pin mapping. Discovered addresses and scan errors appear on 
 the display console. A scan that finds no devices is reported explicitly; any non-address-NACK
 error stops the scan and is logged. It then configures the TCA8418 at `0x34` for its 8x10 keypad
 matrix and polls its event FIFO, logging key-down and key-up events with matrix row/column.
+The BMI270 at `0x69` is initialized from its configuration (accelerometer ±2 g and gyroscope
+±2000 dps, both 100 Hz). Its sample is scaled to m/s² and degrees per second, with roll/pitch
+estimated from gravity. At rest roll reads about ±178° because the badge's Z axis reports -g.
+Hardware testing confirmed stable gravity while stationary, and changing accel, gyro and tilt
+values when rotating the badge.
+
+Per-key and per-second IMU log lines are off by default so they do not flood the display
+console. Enable them with the `telemetry` feature, e.g. `./flash.sh --features telemetry`.
+Initialization and error messages are always logged.
 On-device verification found I2C devices at `0x34`, `0x69`, and `0x76`; manually testing the
 keyboard produced 68 press/release pairs across 67 distinct matrix codes.

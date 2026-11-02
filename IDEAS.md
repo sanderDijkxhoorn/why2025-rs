@@ -1,7 +1,7 @@
 # Ideas backlog
 
 Goal: recreate the spirit of the original BadgeVMS firmware in Rust. Take the ideas, not the code (the original is GPLv3 C).
-The first implementation slices are a one-shot boot-time I2C scan and TCA8418 key-event reporting; both have been verified on the badge.
+The initial implementation slices are a one-shot boot-time I2C scan, TCA8418 key-event reporting, BMI270 accelerometer/gyroscope/tilt sampling, all verified on the badge. Per-key and IMU logs are opt-in via the `telemetry` Cargo feature.
 The remaining ideas still need triage (keep / drop / later), then turn the keepers into tasks.
 
 The upstream repos are cloned into `reference/` (gitignored, shallow): `firmware`, `Hardware`, `test-firmware`, `micropython`,
@@ -19,8 +19,8 @@ Source of the facts below: schematics in `reference/Hardware`, drivers in `refer
 | M2 | TPS563202 bucks (3.3V, 1.2V) | power | n/a |
 | Carrier | ESP32-C6-WROOM-1 | WiFi/BLE co-processor (`esp_hosted`) | idea |
 | Carrier | 720x720 ST7703 panel on 30-pin MIPI, AP3032 boost | display | running |
-| Carrier | TCA8418 + 10 switches + LEDs, AP3032 boost | keyboard matrix (I2C) | idea |
-| Carrier | BMI270 | accelerometer + gyro (I2C) | idea |
+| Carrier | TCA8418 + 10 switches + LEDs, AP3032 boost | keyboard matrix (I2C) | implemented and verified |
+| Carrier | BMI270 | accelerometer + gyro (I2C) | accelerometer, gyro and tilt verified |
 | Carrier | BME680/BME690 | gas/air quality, temp, humidity, pressure (I2C) | idea |
 | Carrier | 7x WS2812B | addressable RGB LEDs | idea |
 | Carrier | MAX98357A + speaker | I2S audio out (no microphone seen) | idea |
@@ -155,7 +155,7 @@ Original = ELF + per-process address space + syscall wrappers. Good concept, but
 6. License: original is GPLv3; reading it for ideas is fine, copying code is not.
 
 ## F. Suggested triage order (not decided)
-1. Hardware bring-up inventory (I2C scan, keyboard, IMU, BME, LEDs, haptics, SD): section A/6. I2C scan and TCA8418 key-event reporting are implemented and verified; the manual keyboard test logged 67 distinct matrix codes.
+1. Hardware bring-up inventory (I2C scan, keyboard, IMU, BME, LEDs, haptics, SD): section A/6. I2C scan, TCA8418 key-event reporting, and BMI270 accelerometer/gyroscope/tilt sampling are implemented and verified.
 2. UI stack choice plus simulator and GUI demo: sections 1, 8.
 3. Input events and shared bus: sections 2, 6.
 4. App model decision: section 3.

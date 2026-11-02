@@ -11,13 +11,20 @@ use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::*;
 use embedded_graphics::text::{Baseline, Text};
-use esp_idf_hal::delay::BLOCK;
-use esp_idf_hal::i2c::{APBTickType, I2cConfig, I2cDriver};
+use esp_idf_hal::delay::{Ets, BLOCK};
+use esp_idf_hal::i2c::{APBTickType, I2cConfig, I2cDriver, I2cError};
 use esp_idf_hal::peripherals::Peripherals;
 use esp_idf_hal::units::*;
 use esp_idf_svc::log::{EspIdfLogFilter, EspLogger};
 use esp_idf_svc::sys::{EspError, ESP_FAIL};
 use log::{Level, LevelFilter, Log, Metadata, Record};
+
+use bmi2::config::BMI270_CONFIG_FILE;
+use bmi2::types::{
+    AccBwp, AccConf, AccRange, Burst, Data, GyrBwp, GyrConf, GyrRange, GyrRangeVal, Odr, OisRange,
+    PerfMode, PwrCtrl, BMI270_CHIP_ID,
+};
+use bmi2::{Bmi2, I2cAddr};
 
 use display::{Display, HEIGHT, WIDTH};
 
@@ -93,6 +100,12 @@ static LOGGER: DualLogger = DualLogger(EspLogger::new(EspIdfLogFilter::new()));
 const TCA8418_ADDRESS: u8 = 0x34;
 const TCA8418_KEY_EVENT_COUNT: u8 = 0x03;
 const TCA8418_KEY_EVENT_A: u8 = 0x04;
+const BMI270_ADDRESS: u8 = 0x69;
+const BMI270_BUFFER_SIZE: usize = 512;
+const GRAVITY_MPS2: f32 = 9.80665;
+const BMI270_GYRO_SENSITIVITY_LSB_PER_DPS: f32 = 16.4;
+
+type Bmi270Error = bmi2::types::Error<I2cError>;
 
 fn init_i2c_bus() -> Result<I2cDriver<'static>, EspError> {
     let peripherals = Peripherals::take()?;
@@ -173,6 +186,9 @@ fn poll_keyboard(i2c: &mut I2cDriver<'_>) -> Result<(), EspError> {
         } else {
             "released"
         };
+        if !cfg!(feature = "telemetry") {
+            continue;
+        }
         if (1..=80).contains(&key) {
             let position = key - 1;
             log::info!(
@@ -186,6 +202,56 @@ fn poll_keyboard(i2c: &mut I2cDriver<'_>) -> Result<(), EspError> {
     }
 
     Ok(())
+}
+
+fn init_bmi270(i2c: &mut I2cDriver<'static>) -> Result<(), Bmi270Error> {
+    let mut bmi = Bmi2::<_, _, BMI270_BUFFER_SIZE>::new_i2c(
+        &mut *i2c,
+        Ets,
+        I2cAddr::Alternative,
+        Burst::new(255),
+    );
+    let chip_id = bmi.get_chip_id()?;
+    log::info!("BMI270 chip ID at 0x{BMI270_ADDRESS:02X}: 0x{chip_id:02X}");
+    if chip_id != BMI270_CHIP_ID {
+        return Err(Bmi270Error::InvalidChipId);
+    }
+
+    bmi.init(&BMI270_CONFIG_FILE)?;
+    bmi.set_acc_conf(AccConf {
+        odr: Odr::Odr100,
+        bwp: AccBwp::NormAvg4,
+        filter_perf: PerfMode::Perf,
+    })?;
+    bmi.set_acc_range(AccRange::Range2g)?;
+    bmi.set_gyr_conf(GyrConf {
+        odr: Odr::Odr100,
+        bwp: GyrBwp::Norm,
+        noise_perf: PerfMode::Power,
+        filter_perf: PerfMode::Perf,
+    })?;
+    bmi.set_gyr_range(GyrRange {
+        range: GyrRangeVal::Range2000,
+        ois_range: OisRange::Range250,
+    })?;
+    bmi.set_pwr_ctrl(PwrCtrl {
+        aux_en: false,
+        gyr_en: true,
+        acc_en: true,
+        temp_en: false,
+    })?;
+    log::info!("BMI270 accelerometer and gyroscope ready (100 Hz)");
+    Ok(())
+}
+
+fn read_bmi270_data(i2c: &mut I2cDriver<'static>) -> Result<Data, Bmi270Error> {
+    let mut bmi = Bmi2::<_, _, BMI270_BUFFER_SIZE>::new_i2c(
+        &mut *i2c,
+        Ets,
+        I2cAddr::Alternative,
+        Burst::new(255),
+    );
+    bmi.get_data()
 }
 
 fn main() {
@@ -215,20 +281,56 @@ fn main() {
         }
     };
     let mut keyboard_ready = false;
+    let mut bmi270_ready = false;
     if let Some(i2c) = i2c.as_mut() {
         scan_i2c_bus(i2c);
         match init_keyboard(i2c) {
             Ok(()) => keyboard_ready = true,
             Err(error) => log::error!("TCA8418 keyboard initialization failed: {error}"),
         }
+        match init_bmi270(i2c) {
+            Ok(()) => bmi270_ready = true,
+            Err(error) => log::error!("BMI270 initialization failed: {error:?}"),
+        }
     }
 
+    let mut last_imu_sample = std::time::Instant::now();
     loop {
         if keyboard_ready {
             if let Some(i2c) = i2c.as_mut() {
                 if let Err(error) = poll_keyboard(i2c) {
                     log::error!("TCA8418 keyboard polling stopped: {error}");
                     keyboard_ready = false;
+                }
+            }
+        }
+        if bmi270_ready && last_imu_sample.elapsed() >= Duration::from_secs(1) {
+            last_imu_sample = std::time::Instant::now();
+            if let Some(i2c) = i2c.as_mut() {
+                match read_bmi270_data(i2c) {
+                    Ok(data) => {
+                        let accel_x = f32::from(data.acc.x) * GRAVITY_MPS2 / 16384.0;
+                        let accel_y = f32::from(data.acc.y) * GRAVITY_MPS2 / 16384.0;
+                        let accel_z = f32::from(data.acc.z) * GRAVITY_MPS2 / 16384.0;
+                        let gyro_x = f32::from(data.gyr.x) / BMI270_GYRO_SENSITIVITY_LSB_PER_DPS;
+                        let gyro_y = f32::from(data.gyr.y) / BMI270_GYRO_SENSITIVITY_LSB_PER_DPS;
+                        let gyro_z = f32::from(data.gyr.z) / BMI270_GYRO_SENSITIVITY_LSB_PER_DPS;
+                        let roll = accel_y.atan2(accel_z).to_degrees();
+                        let pitch = (-accel_x).atan2(accel_y.hypot(accel_z)).to_degrees();
+                        if cfg!(feature = "telemetry") {
+                            log::info!(
+                                "BMI270 accel m/s^2: x={accel_x:.2} y={accel_y:.2} z={accel_z:.2}"
+                            );
+                            log::info!(
+                                "BMI270 gyro deg/s: x={gyro_x:.1} y={gyro_y:.1} z={gyro_z:.1}"
+                            );
+                            log::info!("BMI270 tilt: roll={roll:.1} deg pitch={pitch:.1} deg");
+                        }
+                    }
+                    Err(error) => {
+                        log::error!("BMI270 sampling stopped: {error:?}");
+                        bmi270_ready = false;
+                    }
                 }
             }
         }

@@ -20,12 +20,15 @@ opt-level = "z"
 default = ["std", "esp-idf-svc/native"]
 std = ["alloc", "esp-idf-svc/binstart", "esp-idf-svc/std"]
 alloc = ["esp-idf-svc/alloc"]
+# Periodic IMU and per-key logging; off by default to keep the display console readable.
+telemetry = []
 
 [dependencies]
 log = "0.4"
 esp-idf-svc = { version = "0.53", default-features = false }
 esp-idf-hal = "0.47"
 embedded-graphics = "0.8"
+bmi2 = "0.1.2"
 
 [package.metadata.esp-idf-sys]
 esp_idf_sdkconfig_defaults = ["sdkconfig.defaults"]
