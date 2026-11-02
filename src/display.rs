@@ -225,7 +225,9 @@ impl DrawTarget for Display {
     {
         for Pixel(p, c) in pixels {
             if p.x >= 0 && p.y >= 0 && (p.x as usize) < WIDTH && (p.y as usize) < HEIGHT {
-                self.buf[p.y as usize * WIDTH + p.x as usize] = u16::from_le_bytes(c.to_le_bytes());
+                let x = p.y;
+                let y = WIDTH as i32 - 1 - p.x;
+                self.buf[y as usize * WIDTH + x as usize] = u16::from_le_bytes(c.to_le_bytes());
             }
         }
         Ok(())

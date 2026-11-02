@@ -17,7 +17,7 @@ Source of the facts below: schematics in `reference/Hardware`, drivers in `refer
 | M2 | Micro SD slot (card detect) | removable storage | idea |
 | M2 | CH340K USB-serial + auto-reset | flash/log over the side USB-C | used |
 | M2 | TPS563202 bucks (3.3V, 1.2V) | power | n/a |
-| Carrier | ESP32-C6-WROOM-1 | WiFi/BLE co-processor (`esp_hosted`) | idea |
+| Carrier | ESP32-C6-WROOM-1 | WiFi/BLE co-processor (`esp_hosted`) | Wi-Fi scan/connect groundwork implemented; hardware verification pending |
 | Carrier | 720x720 ST7703 panel on 30-pin MIPI, AP3032 boost | display | running |
 | Carrier | TCA8418 + 10 switches + LEDs, AP3032 boost | keyboard matrix (I2C) | implemented and verified |
 | Carrier | BMI270 | accelerometer + gyro (I2C) | accelerometer, gyro and tilt verified |
@@ -73,10 +73,13 @@ Rust angle: `bosch-bme680` or `bme68x-rust`, `bmi270` crates exist; TCA8418 and 
 - [ ] Launcher: app grid, status bar (clock, battery, wifi, SD), notifications.
 - [ ] Console becomes one app/widget; the log mirror turns into a debug overlay.
 - [ ] Compositor with several windows/surfaces, flags like the original (fullscreen, undecorated, scaling with letterboxing).
-- [ ] Screenshots to SD/serial; backlight/dim control; rotation (panel orientation handling).
+- [ ] Screenshots to SD/serial; backlight/dim control.
+- [x] Framebuffer rotation for the badge's upright layout (needs on-device confirmation).
+- [x] Wi-Fi status dashboard showing connection state, selected SSID, IP, nearby networks, and logs.
 
 ### 2. Input
-- [ ] TCA8418 driver (I2C, interrupt, key FIFO), keymap, repeat, modifiers.
+- [x] Basic TCA8418 key-event mapping and keypad navigation/password entry for the Wi-Fi dashboard.
+- [ ] Full TCA8418 driver (interrupt, repeat, general-purpose modifiers).
 - [ ] Event model that is not frame-limited (the original delivers max 10 per frame).
 - [ ] Focus/navigation for widgets, on-screen keyboard if needed.
 - [ ] Keyboard backlight/LEDs `?`.
@@ -104,7 +107,9 @@ Original = ELF + per-process address space + syscall wrappers. Good concept, but
 - [ ] A kernel-style storage task so apps never touch flash directly.
 
 ### 5. Connectivity
-- [ ] C6 `esp_hosted` WiFi: scan, connect, saved networks, enterprise (eduroam), mode "ask".
+- [x] C6 `esp_hosted` Wi-Fi scan/connect for open and personal WPA-family networks, with saved profiles in P4 NVS (hardware verification pending).
+- [ ] WPA-Enterprise (eduroam) and mode "ask".
+- [x] On-screen Wi-Fi selection, personal-network password entry, and status controls.
 - [ ] Settings UI for wifi, NTP, mDNS, HTTP(S) client.
 - [ ] BLE via the C6 (HID, beacons, badge-to-badge).
 - [ ] Flash/update the C6 slave firmware from the P4.

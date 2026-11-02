@@ -1,16 +1,13 @@
 mod display;
+mod ui;
+mod wifi;
 
-use std::collections::VecDeque;
 use std::fmt::Write as _;
+use std::sync::mpsc;
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-use embedded_graphics::mono_font::ascii::FONT_10X20;
-use embedded_graphics::mono_font::MonoTextStyle;
-use embedded_graphics::pixelcolor::Rgb565;
-use embedded_graphics::prelude::*;
-use embedded_graphics::text::{Baseline, Text};
 use esp_idf_hal::delay::{Ets, BLOCK};
 use esp_idf_hal::gpio::{Output, PinDriver};
 use esp_idf_hal::i2c::{APBTickType, I2cConfig, I2cDriver, I2cError};
@@ -18,7 +15,7 @@ use esp_idf_hal::peripherals::Peripherals;
 use esp_idf_hal::units::*;
 use esp_idf_svc::log::{EspIdfLogFilter, EspLogger};
 use esp_idf_svc::sys::{EspError, ESP_FAIL};
-use log::{Level, LevelFilter, Log, Metadata, Record};
+use log::{LevelFilter, Log, Metadata, Record};
 
 use bmi2::config::BMI270_CONFIG_FILE;
 use bmi2::types::{
@@ -28,48 +25,10 @@ use bmi2::types::{
 use bmi2::{Bmi2, I2cAddr};
 
 use display::{Display, HEIGHT, WIDTH};
+use ui::Dashboard;
+use wifi::{WifiCommand, WifiSnapshot};
 
-const COLS: usize = WIDTH / 10;
-const ROWS: usize = HEIGHT / 20;
-
-struct Console {
-    display: Display,
-    lines: VecDeque<(Level, String)>,
-}
-
-impl Console {
-    fn push(&mut self, level: Level, text: &str) {
-        for line in text.lines() {
-            // Wrap long lines to the screen width
-            let chars: Vec<char> = line.chars().collect();
-            for chunk in chars.chunks(COLS) {
-                if self.lines.len() == ROWS {
-                    self.lines.pop_front();
-                }
-                self.lines.push_back((level, chunk.iter().collect()));
-            }
-        }
-        self.render();
-    }
-
-    fn render(&mut self) {
-        let _ = self.display.clear(Rgb565::BLACK);
-        for (row, (level, line)) in self.lines.iter().enumerate() {
-            let color = match level {
-                Level::Error => Rgb565::RED,
-                Level::Warn => Rgb565::YELLOW,
-                Level::Info => Rgb565::GREEN,
-                _ => Rgb565::CSS_GRAY,
-            };
-            let style = MonoTextStyle::new(&FONT_10X20, color);
-            let _ = Text::with_baseline(line, Point::new(0, row as i32 * 20), style, Baseline::Top)
-                .draw(&mut self.display);
-        }
-        let _ = self.display.flush();
-    }
-}
-
-static CONSOLE: Mutex<Option<Console>> = Mutex::new(None);
+static CONSOLE: Mutex<Option<Dashboard>> = Mutex::new(None);
 
 /// Sends every log record to the serial console and to the screen.
 struct DualLogger(EspLogger);
@@ -85,10 +44,10 @@ impl Log for DualLogger {
             return;
         }
         if let Ok(mut guard) = CONSOLE.try_lock() {
-            if let Some(console) = guard.as_mut() {
+            if let Some(dashboard) = guard.as_mut() {
                 let mut text = String::new();
                 let _ = write!(text, "{}: {}", record.target(), record.args());
-                console.push(record.level(), &text);
+                dashboard.push_log(record.level(), &text);
             }
         }
     }
@@ -109,6 +68,12 @@ const BMI270_GYRO_SENSITIVITY_LSB_PER_DPS: f32 = 16.4;
 type Bmi270Error = bmi2::types::Error<I2cError>;
 
 const VIBRATION_DURATION: Duration = Duration::from_millis(50);
+
+#[derive(Clone, Copy)]
+struct KeyboardEvent {
+    key_code: u8,
+    pressed: bool,
+}
 
 fn vibrate(pin: &mut PinDriver<'_, Output>) -> Result<(), EspError> {
     pin.set_high()?;
@@ -174,8 +139,8 @@ fn init_keyboard(i2c: &mut I2cDriver<'_>) -> Result<(), EspError> {
     Ok(())
 }
 
-fn poll_keyboard(i2c: &mut I2cDriver<'_>) -> Result<usize, EspError> {
-    let mut press_count = 0;
+fn poll_keyboard(i2c: &mut I2cDriver<'_>) -> Result<Vec<KeyboardEvent>, EspError> {
+    let mut key_events = Vec::new();
     let mut event_count = [0];
     i2c.write_read(
         TCA8418_ADDRESS,
@@ -189,14 +154,12 @@ fn poll_keyboard(i2c: &mut I2cDriver<'_>) -> Result<usize, EspError> {
         i2c.write_read(TCA8418_ADDRESS, &[TCA8418_KEY_EVENT_A], &mut event, BLOCK)?;
 
         let key = event[0] & 0x7F;
-        let action = if event[0] & 0x80 != 0 {
-            "pressed"
-        } else {
-            "released"
-        };
-        if event[0] & 0x80 != 0 {
-            press_count += 1;
-        }
+        let pressed = event[0] & 0x80 != 0;
+        let action = if pressed { "pressed" } else { "released" };
+        key_events.push(KeyboardEvent {
+            key_code: key,
+            pressed,
+        });
         if !cfg!(feature = "telemetry") {
             continue;
         }
@@ -212,7 +175,7 @@ fn poll_keyboard(i2c: &mut I2cDriver<'_>) -> Result<usize, EspError> {
         }
     }
 
-    Ok(press_count)
+    Ok(key_events)
 }
 
 fn init_bmi270(i2c: &mut I2cDriver<'static>) -> Result<(), Bmi270Error> {
@@ -274,10 +237,7 @@ fn main() {
     log::info!("Booting WHY2025-RS");
     match Display::new() {
         Ok(display) => {
-            *CONSOLE.lock().unwrap() = Some(Console {
-                display,
-                lines: VecDeque::new(),
-            });
+            *CONSOLE.lock().unwrap() = Some(Dashboard::new(display));
             log::info!("Display ready ({WIDTH}x{HEIGHT})");
         }
         Err(e) => log::error!("Display init failed: {e}"),
@@ -285,6 +245,7 @@ fn main() {
 
     log::info!("WHY2025-RS Base Firmware Online");
     let peripherals = Peripherals::take().expect("peripherals already taken");
+    let modem = peripherals.modem;
     let mut vibrator: Option<PinDriver<'static, Output>> =
         match PinDriver::output(peripherals.pins.gpio8) {
             Ok(pin) => {
@@ -321,14 +282,82 @@ fn main() {
         }
     }
 
+    let (wifi_command_tx, wifi_command_rx) = mpsc::channel();
+    let (wifi_update_tx, wifi_update_rx) = mpsc::channel::<WifiSnapshot>();
+    if let Err(error) = wifi::spawn_console(wifi_command_tx.clone()) {
+        log::error!("Wi-Fi serial command input could not start: {error}");
+    }
+    let manager_updates_tx = wifi_update_tx.clone();
+    let init_failure_updates_tx = wifi_update_tx.clone();
+    if let Err(error) = thread::Builder::new()
+        .name("wifi-manager".into())
+        .stack_size(12_288)
+        .spawn(move || {
+            if let Err(error) = wifi::run(modem, wifi_command_rx, manager_updates_tx) {
+                log::error!("Wi-Fi manager initialization failed: {error}");
+                let mut snapshot = WifiSnapshot::default();
+                snapshot.status = wifi::WifiStatus::Unavailable;
+                snapshot.detail = Some(error);
+                if let Err(send_error) = init_failure_updates_tx.send(snapshot) {
+                    log::error!(
+                        "Wi-Fi initialization status could not reach the display: {send_error}"
+                    );
+                }
+            }
+        })
+    {
+        log::error!("Wi-Fi manager task could not start: {error}");
+        let mut snapshot = WifiSnapshot::default();
+        snapshot.status = wifi::WifiStatus::Unavailable;
+        snapshot.detail = Some(error.to_string());
+        if let Err(send_error) = wifi_update_tx.send(snapshot) {
+            log::error!("Wi-Fi task failure status could not reach the display: {send_error}");
+        }
+    }
+
     let mut last_imu_sample = std::time::Instant::now();
     loop {
+        while let Ok(snapshot) = wifi_update_rx.try_recv() {
+            if let Ok(mut guard) = CONSOLE.lock() {
+                if let Some(dashboard) = guard.as_mut() {
+                    dashboard.set_wifi(snapshot);
+                }
+            }
+        }
+
+        let display_result = if let Ok(mut guard) = CONSOLE.lock() {
+            guard.as_mut().map(Dashboard::render_if_dirty)
+        } else {
+            None
+        };
+        if let Some(Err(error)) = display_result {
+            log::error!("Display refresh failed: {error}");
+        }
+
         if keyboard_ready {
             if let Some(i2c) = i2c.as_mut() {
                 match poll_keyboard(i2c) {
-                    Ok(press_count) => {
+                    Ok(key_events) => {
+                        let mut ui_commands: Vec<WifiCommand> = Vec::new();
+                        if let Ok(mut guard) = CONSOLE.lock() {
+                            if let Some(dashboard) = guard.as_mut() {
+                                for event in &key_events {
+                                    if let Some(command) =
+                                        dashboard.handle_key(event.key_code, event.pressed)
+                                    {
+                                        ui_commands.push(command);
+                                    }
+                                }
+                            }
+                        }
+                        for command in ui_commands {
+                            if wifi_command_tx.send(command).is_err() {
+                                log::error!("Wi-Fi manager is not accepting keypad commands");
+                                break;
+                            }
+                        }
                         if let Some(pin) = vibrator.as_mut() {
-                            for _ in 0..press_count {
+                            for _ in key_events.iter().filter(|event| event.pressed) {
                                 if let Err(error) = vibrate(pin) {
                                     log::error!("Vibrator pulse failed on GPIO8: {error}");
                                     vibrator = None;

@@ -35,7 +35,8 @@ The first build downloads ESP-IDF (needs git, python3, cmake, ninja, libudev hea
   restore it with https://why-prog.heplaphon.com/ ("BadgeVMS post_event").
 - Display: 720x720 ST7703 over MIPI-DSI, ported from `badgevms/drivers/st7703.[ch]` in the firmware repo.
   `src/display.rs` uses the **Bono** panel (black ribbon border, carrier v2.1) init and timings; the older
-  Mountain panel (blue border) needs the other sequence from that driver.
+  Mountain panel (blue border) needs the other sequence from that driver. The framebuffer rotates
+  drawing counterclockwise for the badge's upright layout; confirm the orientation on the device.
 - Logs are mirrored to the screen (`src/main.rs`, `DualLogger`).
 - The framebuffer lives in PSRAM; 200 MHz PSRAM (`IDF_EXPERIMENTAL_FEATURES`) is required, at 20 MHz the DPI stream underruns.
 
@@ -56,6 +57,39 @@ console. Enable them with the `telemetry` feature, e.g. `./flash.sh --features t
 Initialization and error messages are always logged.
 On-device verification found I2C devices at `0x34`, `0x69`, and `0x76`; manually testing the
 keyboard produced 68 press/release pairs across 67 distinct matrix codes.
+
+## Wi-Fi and status dashboard
+The ESP32-P4 has no built-in radio. Wi-Fi uses the carrier's ESP32-C6 over the SDIO `esp_hosted`
+link (P4 GPIOs 28-33 and reset GPIO13), using the component versions and pin map from the badge
+test firmware. The C6 must be running a compatible `esp_hosted` 2.0.17 slave image; this firmware
+does not flash or replace the C6 image.
+
+The display shows Wi-Fi state, the selected SSID and IP address, nearby scan results, and a small
+log view. It only redraws after a state or log change. Use the keypad arrows to select a network
+and Enter to connect. Open networks connect immediately; for secured networks, type the password
+(the display masks it), use either Shift key for capitals/symbols, Backspace to edit, Enter to
+submit, and Esc to cancel. Press `R` to rescan, `D` to disconnect, and `F` to forget the saved
+profile. The scan list shows each named SSID once, using its strongest access point; selection
+scrolls through the full list.
+
+From the P4 serial monitor, use:
+
+```text
+wifi scan
+wifi connect 1 [password]
+wifi disconnect
+wifi forget
+```
+
+The scan list is numbered from 1 and sorted by signal strength, with one entry per named SSID;
+the screen shows eight at a time and scrolls through all results. Open networks need no password;
+personal WPA/WPA2/WPA3 networks accept an 8-63 byte password. Unsupported security modes are
+shown but cannot be selected. A selected profile is stored in the P4's default NVS partition and
+retried at boot. The profile includes the password and NVS encryption is not enabled, so physical
+flash access can expose it. Passwords are not shown on screen or included in logs.
+
+Wi-Fi is build-integrated but still needs on-device verification against the installed C6 slave
+image. If the hosted link does not start, confirm the C6 image version and the P4/C6 SDIO wiring.
 
 ## Haptics and LEDs
 - The vibration motor follows the upstream test firmware: ESP32 GPIO 8 is configured as an output
