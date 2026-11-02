@@ -1,7 +1,8 @@
 # Ideas backlog
 
 Goal: recreate the spirit of the original BadgeVMS firmware in Rust. Take the ideas, not the code (the original is GPLv3 C).
-Nothing here is committed to yet. Next step is triage (keep / drop / later), then turn the keepers into tasks.
+The first implementation slice is a one-shot boot-time I2C scan; verify its results on the badge before adding device drivers.
+The remaining ideas still need triage (keep / drop / later), then turn the keepers into tasks.
 
 The upstream repos are cloned into `reference/` (gitignored, shallow): `firmware`, `Hardware`, `test-firmware`, `micropython`,
 `mass-usb-firmware-flasher`, `badgevms-applications`, `badgehub-{api,frontend,infra}`.
@@ -154,7 +155,7 @@ Original = ELF + per-process address space + syscall wrappers. Good concept, but
 6. License: original is GPLv3; reading it for ideas is fine, copying code is not.
 
 ## F. Suggested triage order (not decided)
-1. Hardware bring-up inventory (I2C scan, keyboard, IMU, BME, LEDs, haptics, SD): section A/6.
+1. Hardware bring-up inventory (I2C scan, keyboard, IMU, BME, LEDs, haptics, SD): section A/6. The boot-time I2C scan is implemented; badge verification is pending.
 2. UI stack choice plus simulator and GUI demo: sections 1, 8.
 3. Input events and shared bus: sections 2, 6.
 4. App model decision: section 3.

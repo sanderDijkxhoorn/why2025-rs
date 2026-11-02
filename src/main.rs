@@ -11,7 +11,12 @@ use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::*;
 use embedded_graphics::text::{Baseline, Text};
+use esp_idf_hal::delay::BLOCK;
+use esp_idf_hal::i2c::{APBTickType, I2cConfig, I2cDriver};
+use esp_idf_hal::peripherals::Peripherals;
+use esp_idf_hal::units::*;
 use esp_idf_svc::log::{EspIdfLogFilter, EspLogger};
+use esp_idf_svc::sys::ESP_FAIL;
 use log::{Level, LevelFilter, Log, Metadata, Record};
 
 use display::{Display, HEIGHT, WIDTH};
@@ -85,6 +90,57 @@ impl Log for DualLogger {
 
 static LOGGER: DualLogger = DualLogger(EspLogger::new(EspIdfLogFilter::new()));
 
+fn scan_i2c_bus() {
+    let peripherals = match Peripherals::take() {
+        Ok(peripherals) => peripherals,
+        Err(error) => {
+            log::error!("I2C scan could not acquire peripherals: {error}");
+            return;
+        }
+    };
+    let config = I2cConfig::new()
+        .baudrate(100.kHz().into())
+        .timeout(APBTickType::from(Duration::from_millis(100)));
+    let mut i2c = match I2cDriver::new(
+        peripherals.i2c0,
+        peripherals.pins.gpio18,
+        peripherals.pins.gpio20,
+        &config,
+    ) {
+        Ok(i2c) => i2c,
+        Err(error) => {
+            log::error!("I2C scan could not initialize GPIO18/20: {error}");
+            return;
+        }
+    };
+
+    let mut found = Vec::new();
+    for address in 0x08..=0x77 {
+        match i2c.write(address, &[], BLOCK) {
+            Ok(()) => found.push(address),
+            Err(error) if error.code() == ESP_FAIL => {}
+            Err(error) => {
+                log::error!("I2C scan stopped at 0x{address:02X}: {error}");
+                return;
+            }
+        }
+    }
+
+    if found.is_empty() {
+        log::warn!("I2C scan complete: no devices found on GPIO18/20");
+    } else {
+        let mut addresses = String::new();
+        for address in &found {
+            let _ = write!(addresses, " 0x{address:02X}");
+        }
+        log::info!(
+            "I2C scan complete: {} device(s) found:{}",
+            found.len(),
+            addresses
+        );
+    }
+}
+
 fn main() {
     // Required so runtime patches from esp-idf-sys are linked in.
     esp_idf_svc::sys::link_patches();
@@ -103,10 +159,9 @@ fn main() {
         Err(e) => log::error!("Display init failed: {e}"),
     }
 
-    let mut count = 0u32;
+    log::info!("WHY2025-RS Base Firmware Online");
+    scan_i2c_bus();
     loop {
-        log::info!("WHY2025-RS Base Firmware Online ({count})");
-        count += 1;
-        thread::sleep(Duration::from_secs(2));
+        thread::sleep(Duration::from_secs(60));
     }
 }

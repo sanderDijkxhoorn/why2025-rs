@@ -38,3 +38,9 @@ The first build downloads ESP-IDF (needs git, python3, cmake, ninja, libudev hea
   Mountain panel (blue border) needs the other sequence from that driver.
 - Logs are mirrored to the screen (`src/main.rs`, `DualLogger`).
 - The framebuffer lives in PSRAM; 200 MHz PSRAM (`IDF_EXPERIMENTAL_FEATURES`) is required, at 20 MHz the DPI stream underruns.
+
+## I2C bring-up
+At boot, the firmware scans the I2C bus once at 100 kHz using GPIO 18 (SDA) and GPIO 20 (SCL),
+the WHY2025 v2/v2.1 pin mapping. Discovered addresses and scan errors appear on both serial and
+the display console. A scan that finds no devices is reported explicitly; any non-address-NACK
+error stops the scan and is logged.
